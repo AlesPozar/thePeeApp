@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import { Calendar, Home, Plus, ChevronLeft, ChevronRight } from "lucide-react"
 
 type DrinkEntry = {
@@ -70,18 +70,166 @@ function SizeIndicator({ size }: { size: 1 | 2 | 3 }) {
   )
 }
 
-function DrinkCard({ entry }: { entry: DrinkEntry }) {
+function DeleteConfirmModal({
+  open,
+  title,
+  description,
+  confirmLabel = "Delete",
+  cancelLabel = "Cancel",
+  onConfirm,
+  onClose,
+}: {
+  open: boolean
+  title?: string
+  description?: string
+  confirmLabel?: string
+  cancelLabel?: string
+  onConfirm: () => void
+  onClose: () => void
+}) {
+  useEffect(() => {
+    if (!open) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [open, onClose])
+
+  if (!open) return null
+
   return (
-    <div className="bg-gradient-to-br from-sky-100 to-sky-200 rounded-2xl p-3 shadow-md hover:shadow-lg transition-all hover:scale-[1.02] border border-sky-200 h-16 flex items-center">
-      <div className="flex items-center gap-2 w-full">
-        {entry.emoji && <span className="text-2xl shrink-0">{entry.emoji}</span>}
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-sky-900 text-sm truncate">{entry.type}</p>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-sky-600">{entry.time}</span>
-            {entry.amount && (
-              <span className="text-xs font-bold text-sky-700">{entry.amount}</span>
-            )}
+    <div
+      className="fixed inset-0 z-50 backdrop-blur-md bg-white/30 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) onClose()
+      }}
+    >
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-200 p-4">
+        <h3 className="text-base font-bold text-slate-800">{title || "Delete entry?"}</h3>
+        {description && <p className="mt-1 text-sm text-slate-600">{description}</p>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl bg-slate-100 text-slate-700 font-semibold hover:bg-slate-200 transition-colors"
+          >
+            {cancelLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="px-4 py-2 rounded-xl bg-red-500 text-white font-semibold hover:bg-red-600 transition-colors"
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function DrinkCard({
+  entry,
+  enableSwipeActions = false,
+  onRequestDelete,
+  onRequestEdit,
+}: {
+  entry: DrinkEntry
+  enableSwipeActions?: boolean
+  onRequestDelete?: (id: number) => void
+  onRequestEdit?: (entry: DrinkEntry) => void
+}) {
+  const [translate, setTranslate] = useState(0)
+  const [isSliding, setIsSliding] = useState(false)
+  const draggingRef = useRef(false)
+  const startXRef = useRef(0)
+
+  const THRESHOLD = 80
+
+  const reset = () => {
+    setTranslate(0)
+    setIsSliding(false)
+  }
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (!enableSwipeActions) return
+    draggingRef.current = true
+    startXRef.current = e.clientX
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!enableSwipeActions) return
+    if (!draggingRef.current) return
+    const delta = e.clientX - startXRef.current
+    // Keep it from going too far
+    const clamped = Math.max(-140, Math.min(140, delta))
+    setTranslate(clamped)
+  }
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!enableSwipeActions) return
+    draggingRef.current = false
+    try {
+      ;(e.currentTarget as Element).releasePointerCapture(e.pointerId)
+    } catch {}
+
+    if (translate > THRESHOLD) {
+      // swipe right => edit
+      setIsSliding(true)
+      setTranslate(110)
+      setTimeout(() => {
+        reset()
+        onRequestEdit?.(entry)
+      }, 180)
+      return
+    }
+
+    if (translate < -THRESHOLD) {
+      // swipe left => delete (confirm)
+      setIsSliding(true)
+      setTranslate(-110)
+      setTimeout(() => {
+        reset()
+        onRequestDelete?.(entry.id)
+      }, 180)
+      return
+    }
+
+    reset()
+  }
+
+  return (
+    <div className="relative">
+      {enableSwipeActions && (
+        <div className="absolute inset-0 flex items-center justify-between px-4">
+          <div className="text-xs font-bold text-slate-600">Edit</div>
+          <div className="text-xs font-bold text-red-600">Delete</div>
+        </div>
+      )}
+      <div
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="bg-gradient-to-br from-sky-100 to-sky-200 rounded-2xl p-3 shadow-md hover:shadow-lg transition-all hover:scale-[1.02] border border-sky-200 h-16 flex items-center"
+        style={{
+          transform: enableSwipeActions ? `translateX(${translate}px)` : undefined,
+          transition: isSliding ? "transform 180ms ease" : undefined,
+          touchAction: enableSwipeActions ? "pan-y" : undefined,
+        }}
+      >
+        <div className="flex items-center gap-2 w-full">
+          {entry.emoji && <span className="text-2xl shrink-0">{entry.emoji}</span>}
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-sky-900 text-sm truncate">{entry.type}</p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-sky-600">{entry.time}</span>
+              {entry.amount && <span className="text-xs font-bold text-sky-700">{entry.amount}</span>}
+            </div>
           </div>
         </div>
       </div>
@@ -89,14 +237,100 @@ function DrinkCard({ entry }: { entry: DrinkEntry }) {
   )
 }
 
-function PeeCard({ entry }: { entry: PeeEntry }) {
+function PeeCard({
+  entry,
+  enableSwipeActions = false,
+  onRequestDelete,
+  onRequestEdit,
+}: {
+  entry: PeeEntry
+  enableSwipeActions?: boolean
+  onRequestDelete?: (id: number) => void
+  onRequestEdit?: (entry: PeeEntry) => void
+}) {
+  const [translate, setTranslate] = useState(0)
+  const [isSliding, setIsSliding] = useState(false)
+  const draggingRef = useRef(false)
+  const startXRef = useRef(0)
+
+  const THRESHOLD = 80
+
+  const reset = () => {
+    setTranslate(0)
+    setIsSliding(false)
+  }
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (!enableSwipeActions) return
+    draggingRef.current = true
+    startXRef.current = e.clientX
+    ;(e.currentTarget as Element).setPointerCapture(e.pointerId)
+  }
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!enableSwipeActions) return
+    if (!draggingRef.current) return
+    const delta = e.clientX - startXRef.current
+    const clamped = Math.max(-140, Math.min(140, delta))
+    setTranslate(clamped)
+  }
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!enableSwipeActions) return
+    draggingRef.current = false
+    try {
+      ;(e.currentTarget as Element).releasePointerCapture(e.pointerId)
+    } catch {}
+
+    if (translate > THRESHOLD) {
+      setIsSliding(true)
+      setTranslate(110)
+      setTimeout(() => {
+        reset()
+        onRequestEdit?.(entry)
+      }, 180)
+      return
+    }
+
+    if (translate < -THRESHOLD) {
+      setIsSliding(true)
+      setTranslate(-110)
+      setTimeout(() => {
+        reset()
+        onRequestDelete?.(entry.id)
+      }, 180)
+      return
+    }
+
+    reset()
+  }
+
   return (
-    <div className="bg-gradient-to-br from-amber-50 to-yellow-100 rounded-2xl p-3 shadow-md hover:shadow-lg transition-all hover:scale-[1.02] border border-yellow-200 h-16 flex items-center">
-      <div className="flex items-center gap-2 w-full">
-        {entry.emoji && <span className="text-2xl">{entry.emoji}</span>}
-        <span className="font-bold text-amber-800 text-sm">{entry.time}</span>
-        <div className="ml-auto">
-          <SizeIndicator size={entry.size} />
+    <div className="relative">
+      {enableSwipeActions && (
+        <div className="absolute inset-0 flex items-center justify-between px-4">
+          <div className="text-xs font-bold text-slate-600">Edit</div>
+          <div className="text-xs font-bold text-red-600">Delete</div>
+        </div>
+      )}
+      <div
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="bg-gradient-to-br from-amber-50 to-yellow-100 rounded-2xl p-3 shadow-md hover:shadow-lg transition-all hover:scale-[1.02] border border-yellow-200 h-16 flex items-center"
+        style={{
+          transform: enableSwipeActions ? `translateX(${translate}px)` : undefined,
+          transition: isSliding ? "transform 180ms ease" : undefined,
+          touchAction: enableSwipeActions ? "pan-y" : undefined,
+        }}
+      >
+        <div className="flex items-center gap-2 w-full">
+          {entry.emoji && <span className="text-2xl">{entry.emoji}</span>}
+          <span className="font-bold text-amber-800 text-sm">{entry.time}</span>
+          <div className="ml-auto">
+            <SizeIndicator size={entry.size} />
+          </div>
         </div>
       </div>
     </div>
@@ -188,14 +422,21 @@ function BarChart({ data }: { data: DayData }) {
 function AddDrinkScreen({
   onBack,
   onSave,
+  initial,
+  isEditing = false,
 }: {
   onBack: () => void
   onSave: (entry: Omit<DrinkEntry, "id">) => void
+  initial?: Partial<Omit<DrinkEntry, "id">>
+  isEditing?: boolean
 }) {
-  const [selectedEmoji, setSelectedEmoji] = useState<string>("")
-  const [selectedType, setSelectedType] = useState<string>("")
-  const [time, setTime] = useState<string>(getCurrentTime())
-  const [amount, setAmount] = useState<string>("")
+  const [selectedEmoji, setSelectedEmoji] = useState<string>(initial?.emoji ?? "")
+  const [selectedType, setSelectedType] = useState<string>(initial?.type ?? "")
+  const [time, setTime] = useState<string>(initial?.time ?? getCurrentTime())
+  const [amount, setAmount] = useState<string>(() => {
+    const raw = initial?.amount ?? ""
+    return raw.replace(/\s*ml\s*$/i, "")
+  })
 
   const handleSave = () => {
     onSave({
@@ -277,7 +518,7 @@ function AddDrinkScreen({
             onClick={handleSave}
             className="w-full bg-gradient-to-r from-sky-400 via-sky-500 to-cyan-500 text-white py-4 rounded-2xl font-bold text-lg shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-95"
           >
-            Save Drink
+            {isEditing ? "Update Drink" : "Save Drink"}
           </button>
         </div>
       </main>
@@ -288,13 +529,17 @@ function AddDrinkScreen({
 function AddPeeScreen({
   onBack,
   onSave,
+  initial,
+  isEditing = false,
 }: {
   onBack: () => void
   onSave: (entry: Omit<PeeEntry, "id">) => void
+  initial?: Partial<Omit<PeeEntry, "id">>
+  isEditing?: boolean
 }) {
-  const [selectedEmoji, setSelectedEmoji] = useState<string>("")
-  const [time, setTime] = useState<string>(getCurrentTime())
-  const [size, setSize] = useState<1 | 2 | 3>(2)
+  const [selectedEmoji, setSelectedEmoji] = useState<string>(initial?.emoji ?? "")
+  const [time, setTime] = useState<string>(initial?.time ?? getCurrentTime())
+  const [size, setSize] = useState<1 | 2 | 3>(initial?.size ?? 2)
 
   const handleSave = () => {
     onSave({
@@ -378,7 +623,7 @@ function AddPeeScreen({
             onClick={handleSave}
             className="w-full bg-gradient-to-r from-amber-400 via-yellow-400 to-amber-500 text-white py-4 rounded-2xl font-bold text-lg shadow-lg hover:shadow-xl transition-all hover:scale-[1.02] active:scale-95"
           >
-            Save Pee
+            {isEditing ? "Update Pee" : "Save Pee"}
           </button>
         </div>
       </main>
@@ -391,6 +636,10 @@ function MainScreen({
   onCalendarClick,
   onAddDrink,
   onAddPee,
+  onRequestDeleteDrink,
+  onRequestEditDrink,
+  onRequestDeletePee,
+  onRequestEditPee,
   title,
   onBack,
   showStats = false,
@@ -400,6 +649,10 @@ function MainScreen({
   onCalendarClick?: () => void
   onAddDrink?: () => void
   onAddPee?: () => void
+  onRequestDeleteDrink?: (id: number) => void
+  onRequestEditDrink?: (entry: DrinkEntry) => void
+  onRequestDeletePee?: (id: number) => void
+  onRequestEditPee?: (entry: PeeEntry) => void
   title?: string
   onBack?: () => void
   showStats?: boolean
@@ -407,6 +660,8 @@ function MainScreen({
 }) {
   const sortedDrinks = useMemo(() => sortByTime(data.drinks), [data.drinks])
   const sortedPees = useMemo(() => sortByTime(data.pees), [data.pees])
+
+  const enableSwipeActions = showAddButtons && !title
 
   return (
     <div className="flex flex-col min-h-screen bg-gradient-to-b from-slate-50 to-slate-100">
@@ -432,7 +687,13 @@ function MainScreen({
               <h2 className="text-sm font-bold text-slate-600 mb-3">What did you drink?</h2>
               <div className="flex flex-col gap-2">
                 {sortedDrinks.map((entry) => (
-                  <DrinkCard key={entry.id} entry={entry} />
+                  <DrinkCard
+                    key={entry.id}
+                    entry={entry}
+                    enableSwipeActions={enableSwipeActions}
+                    onRequestDelete={onRequestDeleteDrink}
+                    onRequestEdit={onRequestEditDrink}
+                  />
                 ))}
                 {showAddButtons && onAddDrink && <AddCard onClick={onAddDrink} />}
               </div>
@@ -441,7 +702,13 @@ function MainScreen({
               <h2 className="text-sm font-bold text-slate-600 mb-3">How many times?</h2>
               <div className="flex flex-col gap-2">
                 {sortedPees.map((entry) => (
-                  <PeeCard key={entry.id} entry={entry} />
+                  <PeeCard
+                    key={entry.id}
+                    entry={entry}
+                    enableSwipeActions={enableSwipeActions}
+                    onRequestDelete={onRequestDeletePee}
+                    onRequestEdit={onRequestEditPee}
+                  />
                 ))}
                 {showAddButtons && onAddPee && <AddCard onClick={onAddPee} />}
               </div>
@@ -656,6 +923,18 @@ export default function PeeApp() {
   const [allData, setAllData] = useState<AllData>(defaultData)
   const [isLoaded, setIsLoaded] = useState(false)
 
+  const [pendingDelete, setPendingDelete] = useState<
+    | { kind: "drink"; id: number; dateKey: string }
+    | { kind: "pee"; id: number; dateKey: string }
+    | null
+  >(null)
+
+  const [editState, setEditState] = useState<
+    | { kind: "drink"; entry: DrinkEntry; dateKey: string }
+    | { kind: "pee"; entry: PeeEntry; dateKey: string }
+    | null
+  >(null)
+
   const todayKey = getTodayKey()
 
   // Load data from localStorage on mount
@@ -680,26 +959,84 @@ export default function PeeApp() {
 
   const todayData = allData[todayKey] || { drinks: [], pees: [] }
 
-  const handleAddDrink = (entry: Omit<DrinkEntry, "id">) => {
-    const newEntry = { ...entry, id: Date.now() }
-    setAllData(prev => ({
-      ...prev,
-      [todayKey]: {
-        drinks: [...(prev[todayKey]?.drinks || []), newEntry],
-        pees: prev[todayKey]?.pees || [],
-      },
-    }))
+  const handleSaveDrink = (entry: Omit<DrinkEntry, "id">) => {
+    setAllData((prev) => {
+      const dateKey = editState?.kind === "drink" ? editState.dateKey : todayKey
+      const existing = prev[dateKey] || { drinks: [], pees: [] }
+
+      if (editState?.kind === "drink") {
+        const updated: DrinkEntry = { ...entry, id: editState.entry.id }
+        return {
+          ...prev,
+          [dateKey]: {
+            ...existing,
+            drinks: existing.drinks.map((d) => (d.id === editState.entry.id ? updated : d)),
+          },
+        }
+      }
+
+      const newEntry: DrinkEntry = { ...entry, id: Date.now() }
+      return {
+        ...prev,
+        [todayKey]: {
+          drinks: [...(prev[todayKey]?.drinks || []), newEntry],
+          pees: prev[todayKey]?.pees || [],
+        },
+      }
+    })
+    setEditState(null)
   }
 
-  const handleAddPee = (entry: Omit<PeeEntry, "id">) => {
-    const newEntry = { ...entry, id: Date.now() }
-    setAllData(prev => ({
-      ...prev,
-      [todayKey]: {
-        drinks: prev[todayKey]?.drinks || [],
-        pees: [...(prev[todayKey]?.pees || []), newEntry],
-      },
-    }))
+  const handleSavePee = (entry: Omit<PeeEntry, "id">) => {
+    setAllData((prev) => {
+      const dateKey = editState?.kind === "pee" ? editState.dateKey : todayKey
+      const existing = prev[dateKey] || { drinks: [], pees: [] }
+
+      if (editState?.kind === "pee") {
+        const updated: PeeEntry = { ...entry, id: editState.entry.id }
+        return {
+          ...prev,
+          [dateKey]: {
+            ...existing,
+            pees: existing.pees.map((p) => (p.id === editState.entry.id ? updated : p)),
+          },
+        }
+      }
+
+      const newEntry: PeeEntry = { ...entry, id: Date.now() }
+      return {
+        ...prev,
+        [todayKey]: {
+          drinks: prev[todayKey]?.drinks || [],
+          pees: [...(prev[todayKey]?.pees || []), newEntry],
+        },
+      }
+    })
+    setEditState(null)
+  }
+
+  const confirmDelete = () => {
+    if (!pendingDelete) return
+    setAllData((prev) => {
+      const existing = prev[pendingDelete.dateKey] || { drinks: [], pees: [] }
+      if (pendingDelete.kind === "drink") {
+        return {
+          ...prev,
+          [pendingDelete.dateKey]: {
+            ...existing,
+            drinks: existing.drinks.filter((d) => d.id !== pendingDelete.id),
+          },
+        }
+      }
+      return {
+        ...prev,
+        [pendingDelete.dateKey]: {
+          ...existing,
+          pees: existing.pees.filter((p) => p.id !== pendingDelete.id),
+        },
+      }
+    })
+    setPendingDelete(null)
   }
 
   if (!isLoaded) {
@@ -712,11 +1049,54 @@ export default function PeeApp() {
   }
 
   if (screen === "addDrink") {
-    return <AddDrinkScreen onBack={() => setScreen("main")} onSave={handleAddDrink} />
+    const initial = editState?.kind === "drink" ? editState.entry : undefined
+    return (
+      <>
+        <AddDrinkScreen
+          onBack={() => {
+            setEditState(null)
+            setScreen("main")
+          }}
+          onSave={handleSaveDrink}
+          initial={
+            initial
+              ? {
+                  emoji: initial.emoji,
+                  type: initial.type,
+                  time: initial.time,
+                  amount: initial.amount,
+                }
+              : undefined
+          }
+          isEditing={!!initial}
+        />
+      </>
+    )
   }
 
   if (screen === "addPee") {
-    return <AddPeeScreen onBack={() => setScreen("main")} onSave={handleAddPee} />
+    const initial = editState?.kind === "pee" ? editState.entry : undefined
+    return (
+      <>
+        <AddPeeScreen
+          onBack={() => {
+            setEditState(null)
+            setScreen("main")
+          }}
+          onSave={handleSavePee}
+          initial={
+            initial
+              ? {
+                  emoji: initial.emoji,
+                  time: initial.time,
+                  size: initial.size,
+                }
+              : undefined
+          }
+          isEditing={!!initial}
+        />
+      </>
+    )
   }
 
   if (screen === "calendar") {
@@ -738,11 +1118,39 @@ export default function PeeApp() {
   }
 
   return (
-    <MainScreen
-      data={todayData}
-      onCalendarClick={() => setScreen("calendar")}
-      onAddDrink={() => setScreen("addDrink")}
-      onAddPee={() => setScreen("addPee")}
-    />
+    <>
+      <DeleteConfirmModal
+        open={!!pendingDelete}
+        title={pendingDelete?.kind === "drink" ? "Delete drink?" : "Delete pee?"}
+        description="This can’t be undone."
+        onClose={() => setPendingDelete(null)}
+        onConfirm={confirmDelete}
+      />
+
+      <MainScreen
+        data={todayData}
+        onCalendarClick={() => setScreen("calendar")}
+        onAddDrink={() => {
+          setEditState(null)
+          setScreen("addDrink")
+        }}
+        onAddPee={() => {
+          setEditState(null)
+          setScreen("addPee")
+        }}
+        onRequestDeleteDrink={(id) => setPendingDelete({ kind: "drink", id, dateKey: todayKey })}
+        onRequestEditDrink={(entry) => {
+          setPendingDelete(null)
+          setEditState({ kind: "drink", entry, dateKey: todayKey })
+          setScreen("addDrink")
+        }}
+        onRequestDeletePee={(id) => setPendingDelete({ kind: "pee", id, dateKey: todayKey })}
+        onRequestEditPee={(entry) => {
+          setPendingDelete(null)
+          setEditState({ kind: "pee", entry, dateKey: todayKey })
+          setScreen("addPee")
+        }}
+      />
+    </>
   )
 }
