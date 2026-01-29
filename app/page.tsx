@@ -718,6 +718,16 @@ function MainScreen({
       </main>
 
       {onCalendarClick && (
+        <>
+          {enableSwipeActions && (
+            <div className="fixed bottom-[92px] left-0 right-0 z-40 pointer-events-none">
+              <div className="max-w-md mx-auto px-4">
+                <div className="text-center text-xs font-semibold text-slate-500">
+                  Swipe blocks left/right to delete/edit
+                </div>
+              </div>
+            </div>
+          )}
         <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-lg border-t border-slate-200 py-4 shadow-2xl">
           <div className="flex justify-center">
             <button
@@ -729,6 +739,7 @@ function MainScreen({
             </button>
           </div>
         </nav>
+        </>
       )}
     </div>
   )
